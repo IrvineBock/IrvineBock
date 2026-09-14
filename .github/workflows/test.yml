@@ -1,0 +1,71 @@
+name: CI Pipeline
+
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, beta]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Rust ${{ matrix.rust }} with dependency cache
+        uses: actions/setup-rust@v1
+        with:
+          cache: ${{ hashFiles('Cargo.lock') != '' && 'cargo' || '' }}
+
+      - name: Install Rust dependencies
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo fetch --locked
+
+      - name: Check Rust formatting
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo fmt --all -- --check
+
+      - name: Check Rust lint rules
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build Rust targets
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo build --all-targets
+
+      - name: Run Rust unit and integration tests
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo test --all-targets --all-features
+
+      - name: Summarize CI pipeline
+        if: always()
+        shell: bash
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          DEPS_OUTCOME: ${{ steps.install-deps.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format-check.outcome }}
+          CLIPPY_OUTCOME: ${{ steps.lint-check.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          { \
+            echo '## CI Pipeline Summary'; \
+            echo ''; \
+            echo '| Step | Outcome |'; \
+            echo '| --- | --- |'; \
+            echo "| Checkout | \${CHECKOUT_OUTCOME} |"; \
+            echo "| Install dependencies | \${DEPS_OUTCOME} |"; \
+            echo "| Check formatting | \${FORMAT_OUTCOME} |"; \
+            echo "| Check lint rules | \${CLIPPY_OUTCOME} |"; \
+            echo "| Build targets | \${BUILD_OUTCOME} |"; \
+            echo "| Run unit and integration tests | \${TEST_OUTCOME} |"; \
+          } >> "$GITHUB_STEP_SUMMARY"
